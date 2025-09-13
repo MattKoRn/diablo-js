@@ -263,13 +263,246 @@ setInterval(function(){
     hero.health=Math.min(hero.health+10, hero.origin_health);
 },2000);
 
+// Intelligent Monster Spawn Management
+var spawnManager = {
+    maxMonsters: 8,
+    spawnCooldown: 0,
+    spawnRadius: 600,
+    
+    update: function() {
+        if(this.spawnCooldown > 0) {
+            this.spawnCooldown--;
+            return;
+        }
+        
+        // Maintain optimal monster count
+        if(monsters.length < this.maxMonsters) {
+            this.spawnMonster();
+            this.spawnCooldown = 50; // Cooldown between spawns
+        }
+    },
+    
+    spawnMonster: function() {
+        var attempts = 0;
+        while(attempts < 20) {
+            var angle = Math.random() * Math.PI * 2;
+            var distance = 300 + Math.random() * this.spawnRadius;
+            var x = hero.x + Math.cos(angle) * distance;
+            var y = hero.y + Math.sin(angle) * distance;
+            
+            if(isWayWall(x, y)) {
+                var monsterTypes = ['SK', 'FS', 'SI'];
+                var type = monsterTypes[Math.floor(Math.random() * monsterTypes.length)];
+                var monster = new AgressiveMob(x, y, type);
+                
+                // Apply difficulty scaling
+                monster.origin_health = difficultyManager.getNewMonsterHealth();
+                monster.health = monster.origin_health;
+                monster.currentDamage = difficultyManager.getNewMonsterDamage();
+                monster.difficultyApplied = true;
+                
+                monsters.push(monster);
+                break;
+            }
+            attempts++;
+        }
+    }
+};
+
+// Automated Resource Management
+var resourceManager = {
+    lootSpawnCooldown: 0,
+    maxPotions: 6,
+    maxCoins: 10,
+    
+    update: function() {
+        if(this.lootSpawnCooldown > 0) {
+            this.lootSpawnCooldown--;
+            return;
+        }
+        
+        // Maintain potion supply
+        if(potions.length < this.maxPotions) {
+            this.spawnPotion();
+            this.lootSpawnCooldown = 30;
+        }
+        
+        // Spawn coins occasionally
+        if(coins.length < this.maxCoins && Math.random() > 0.7) {
+            this.spawnCoin();
+        }
+    },
+    
+    spawnPotion: function() {
+        var attempts = 0;
+        while(attempts < 15) {
+            var angle = Math.random() * Math.PI * 2;
+            var distance = 200 + Math.random() * 400;
+            var x = hero.x + Math.cos(angle) * distance;
+            var y = hero.y + Math.sin(angle) * distance;
+            
+            if(isWayWall(x, y)) {
+                potions.push(new PotionHealth(x, y));
+                break;
+            }
+            attempts++;
+        }
+    },
+    
+    spawnCoin: function() {
+        var attempts = 0;
+        while(attempts < 15) {
+            var angle = Math.random() * Math.PI * 2;
+            var distance = 150 + Math.random() * 300;
+            var x = hero.x + Math.cos(angle) * distance;
+            var y = hero.y + Math.sin(angle) * distance;
+            
+            if(isWayWall(x, y)) {
+                coins.push(new Coin(x, y));
+                break;
+            }
+            attempts++;
+        }
+    }
+};
+
+// Difficulty Scaling and Performance System
+var difficultyManager = {
+    baseMonsterHealth: 1000,
+    baseDamage: 30,
+    difficultyLevel: 1.0,
+    lastUpdate: Date.now(),
+    
+    update: function() {
+        var now = Date.now();
+        if(now - this.lastUpdate < 10000) return; // Update every 10 seconds
+        this.lastUpdate = now;
+        
+        var stats = gameStats.getStats();
+        var targetEfficiency = 2.0; // Target 2 kills per minute
+        
+        // Adjust difficulty based on performance
+        if(stats.efficiency > targetEfficiency * 1.5) {
+            this.difficultyLevel *= 1.1; // Increase difficulty
+        } else if(stats.efficiency < targetEfficiency * 0.5 && this.difficultyLevel > 0.5) {
+            this.difficultyLevel *= 0.95; // Decrease difficulty
+        }
+        
+        // Apply difficulty scaling to new monsters
+        this.updateMonsterStats();
+    },
+    
+    updateMonsterStats: function() {
+        for(var i in monsters) {
+            var m = monsters[i];
+            if(!m.difficultyApplied) {
+                m.origin_health = Math.floor(this.baseMonsterHealth * this.difficultyLevel);
+                m.health = m.origin_health;
+                m.currentDamage = Math.floor(this.baseDamage * this.difficultyLevel);
+                m.difficultyApplied = true;
+            }
+        }
+    },
+    
+    getNewMonsterHealth: function() {
+        return Math.floor(this.baseMonsterHealth * this.difficultyLevel);
+    },
+    
+    getNewMonsterDamage: function() {
+        return Math.floor(this.baseDamage * this.difficultyLevel);
+    }
+};
+
+// Performance Monitor
+var performanceMonitor = {
+    frameCount: 0,
+    lastFpsUpdate: Date.now(),
+    fps: 60,
+    
+    update: function() {
+        this.frameCount++;
+        var now = Date.now();
+        if(now - this.lastFpsUpdate >= 1000) {
+            this.fps = this.frameCount;
+            this.frameCount = 0;
+            this.lastFpsUpdate = now;
+            
+            // Auto-adjust quality based on performance
+            if(this.fps < 30) {
+                this.optimizePerformance();
+            }
+        }
+    },
+    
+    optimizePerformance: function() {
+        // Reduce monster count if performance is poor
+        if(monsters.length > 6) {
+            spawnManager.maxMonsters = Math.max(4, spawnManager.maxMonsters - 1);
+        }
+        
+        // Reduce loot count
+        if(coins.length > 8) {
+            coins.splice(8);
+        }
+        if(potions.length > 4) {
+            potions.splice(4);
+        }
+    },
+    
+    getFPS: function() {
+        return this.fps;
+    }
+};
+// Game Statistics and Performance Monitoring
+var gameStats = {
+    startTime: Date.now(),
+    monstersKilled: 0,
+    coinsCollected: 0,
+    potionsUsed: 0,
+    damageDealt: 0,
+    damageTaken: 0,
+    explorationScore: 0,
+    
+    update: function() {
+        // Calculate exploration score based on unique areas visited
+        this.explorationScore = aiSystem.exploredAreas.size * 10;
+    },
+    
+    getPlayTime: function() {
+        return Math.floor((Date.now() - this.startTime) / 1000);
+    },
+    
+    getStats: function() {
+        return {
+            playTime: this.getPlayTime(),
+            monstersKilled: this.monstersKilled,
+            coinsCollected: this.coinsCollected,
+            potionsUsed: this.potionsUsed,
+            damageDealt: this.damageDealt,
+            damageTaken: this.damageTaken,
+            explorationScore: this.explorationScore,
+            efficiency: Math.round(this.monstersKilled / Math.max(1, this.getPlayTime() / 60) * 100) / 100
+        };
+    }
+};
+
+// Enhanced game loop with automation
+var gameUpdateInterval = setInterval(function() {
+    spawnManager.update();
+    resourceManager.update();
+    gameStats.update();
+    difficultyManager.update();
+    performanceMonitor.update();
+}, 100);
+
 // aggresive mobs
 var monsters=[],deathmobs=[],barrels=[],coins=[],potions=[],walls=[];
-for(var i=0;i<2;i++) monsters.push(new AgressiveMob(randomx(),randomy(), 'SK'));
-for(var i=0;i<2;i++) monsters.push(new AgressiveMob(randomx(),randomy(), 'FS'));
-for(var i=0;i<2;i++) monsters.push(new AgressiveMob(randomx(),randomy(), 'SI'));
+for(var i=0;i<4;i++) monsters.push(new AgressiveMob(randomx(),randomy(), 'SK'));
+for(var i=0;i<3;i++) monsters.push(new AgressiveMob(randomx(),randomy(), 'FS'));
+for(var i=0;i<3;i++) monsters.push(new AgressiveMob(randomx(),randomy(), 'SI'));
 //for(var i=0;i<2;i++) barrels.push(new Barrel(randomx(),randomy()));
-for(var i=0;i<2;i++) potions.push(new PotionHealth(randomx(), randomy()));
+for(var i=0;i<4;i++) potions.push(new PotionHealth(randomx(), randomy()));
+for(var i=0;i<5;i++) coins.push(new Coin(randomx(), randomy()));
 
 for(var y in level.wall.map){
     for(var x in level.wall.map[y]){
@@ -337,17 +570,35 @@ window.onkeydown=function(e){
         showMap=!showMap;
         return false;
     }
+    if(e.keyCode==83){ // 'S' key for stats
+        window.showStats=!window.showStats;
+        return false;
+    }
+    if(e.keyCode==65){ // 'A' key for AI status
+        window.showAIStatus=!window.showAIStatus;
+        return false;
+    }
+    if(e.keyCode==72){ // 'H' key for help
+        window.showHelp=!window.showHelp;
+        return false;
+    }
 }
 
 var showMap=false;
+window.showStats=true; // Show stats by default
+window.showAIStatus=true; // Show AI status by default
+window.showHelp=false;
 setInterval(function() {
     if(imageCount>0) return;
     hero.nextStep();
     for(var i in monsters) monsters[i].nextStep();
     floor.fillStyle="black";floor.fillRect(0,0, floor.w,floor.h);
     renderFloor();
-    renderHeroHealth()
+    renderHeroHealth();
     renderHeroBelt();
+    renderGameStats();
+    renderAIStatus();
+    renderHelp();
     if(showMap) renderMap();
 }, 66);
 
@@ -355,7 +606,7 @@ function renderHeroHealth(){
     var radius=80, padding=20;
     floor.save();
     floor.globalAlpha=0.4;
-    // draw health colb
+    // draw health orb
     floor.fillStyle="black";
     floor.beginPath();
     floor.arc(radius+padding, floor.h-radius-padding, radius+4, 0, Math.PI*2);
@@ -370,6 +621,81 @@ function renderHeroHealth(){
     floor.arc(radius+padding, floor.h-radius-padding, radius, angleFrom, angleTo);
     floor.closePath();
     floor.fill();
+    floor.restore();
+}
+
+function renderGameStats(){
+    if(!window.showStats) return;
+    
+    var stats = gameStats.getStats();
+    floor.save();
+    floor.fillStyle = "rgba(0, 0, 0, 0.7)";
+    floor.fillRect(10, 10, 300, 240);
+    
+    floor.fillStyle = "rgb(169, 152, 119)";
+    floor.font = "12px Verdana, sans-serif";
+    
+    var y = 30;
+    var lineHeight = 20;
+    
+    floor.fillText("=== GAME STATISTICS ===", 20, y);
+    y += lineHeight * 1.5;
+    
+    floor.fillText("Play Time: " + stats.playTime + "s", 20, y);
+    y += lineHeight;
+    floor.fillText("Monsters Killed: " + stats.monstersKilled, 20, y);
+    y += lineHeight;
+    floor.fillText("Coins Collected: " + stats.coinsCollected, 20, y);
+    y += lineHeight;
+    floor.fillText("Potions Used: " + stats.potionsUsed, 20, y);
+    y += lineHeight;
+    floor.fillText("Damage Dealt: " + Math.round(stats.damageDealt), 20, y);
+    y += lineHeight;
+    floor.fillText("Damage Taken: " + Math.round(stats.damageTaken), 20, y);
+    y += lineHeight;
+    floor.fillText("Exploration: " + stats.explorationScore, 20, y);
+    y += lineHeight;
+    floor.fillText("Efficiency: " + stats.efficiency + " kills/min", 20, y);
+    y += lineHeight;
+    floor.fillText("Difficulty: " + Math.round(difficultyManager.difficultyLevel * 100) + "%", 20, y);
+    y += lineHeight;
+    floor.fillText("FPS: " + performanceMonitor.getFPS(), 20, y);
+    
+    floor.restore();
+}
+
+function renderAIStatus(){
+    if(!window.showAIStatus) return;
+    
+    floor.save();
+    floor.fillStyle = "rgba(0, 0, 0, 0.6)";
+    floor.fillRect(floor.w - 250, 10, 240, 120);
+    
+    floor.fillStyle = "rgb(169, 152, 119)";
+    floor.font = "11px Verdana, sans-serif";
+    
+    var y = 30;
+    var lineHeight = 16;
+    var x = floor.w - 240;
+    
+    floor.fillText("=== AI STATUS ===", x, y);
+    y += lineHeight * 1.5;
+    
+    var objective = aiSystem.currentObjective || 'combat/loot';
+    floor.fillText("Objective: " + objective, x, y);
+    y += lineHeight;
+    
+    floor.fillText("Explored Areas: " + aiSystem.exploredAreas.size, x, y);
+    y += lineHeight;
+    
+    floor.fillText("Active Monsters: " + monsters.length, x, y);
+    y += lineHeight;
+    
+    floor.fillText("Available Loot: " + (coins.length + potions.length), x, y);
+    y += lineHeight;
+    
+    floor.fillText("Health: " + Math.round(hero.health) + "/" + hero.origin_health, x, y);
+    
     floor.restore();
 }
 
@@ -493,6 +819,50 @@ function renderFloor() {
     floor.restore();
 }
 
+function renderHelp(){
+    if(!window.showHelp) return;
+    
+    floor.save();
+    floor.fillStyle = "rgba(0, 0, 0, 0.8)";
+    floor.fillRect(floor.w/2 - 200, floor.h/2 - 150, 400, 300);
+    
+    floor.fillStyle = "rgb(169, 152, 119)";
+    floor.font = "14px Verdana, sans-serif";
+    
+    var y = floor.h/2 - 120;
+    var lineHeight = 20;
+    var x = floor.w/2 - 180;
+    
+    floor.fillText("=== AUTOMATED DIABLO CONTROLS ===", x, y);
+    y += lineHeight * 1.5;
+    
+    floor.font = "12px Verdana, sans-serif";
+    floor.fillText("TAB - Toggle minimap", x, y);
+    y += lineHeight;
+    floor.fillText("S - Toggle statistics display", x, y);
+    y += lineHeight;
+    floor.fillText("A - Toggle AI status display", x, y);
+    y += lineHeight;
+    floor.fillText("H - Toggle this help", x, y);
+    y += lineHeight;
+    floor.fillText("1-0 - Use belt potions (manual)", x, y);
+    y += lineHeight * 1.5;
+    
+    floor.fillText("AI Features:", x, y);
+    y += lineHeight;
+    floor.fillText("• Intelligent combat with positioning", x, y);
+    y += lineHeight;
+    floor.fillText("• Smart exploration and pathfinding", x, y);
+    y += lineHeight;
+    floor.fillText("• Automatic loot collection", x, y);
+    y += lineHeight;
+    floor.fillText("• Auto-healing based on health", x, y);
+    y += lineHeight;
+    floor.fillText("• Dynamic monster spawning", x, y);
+    
+    floor.restore();
+}
+
 function renderMap() {
     floor.save();
     floor.translate(floor.w/2, floor.h/2);
@@ -508,7 +878,34 @@ function renderMap() {
         if(v.header.orientation==4)continue;
         for(var j=0;j<25;j++) if(walk[j]==1) floor.fillRect(v.x+wallOffset[j].x, v.y+wallOffset[j].y, s/5, s/5);
     }
-    floor.fillRect(hero.x, hero.y, s/5, s/5);
+    
+    // Show explored areas on map
+    floor.fillStyle="rgba(0,255,0,0.3)";
+    aiSystem.exploredAreas.forEach(function(coord) {
+        var parts = coord.split(',');
+        var gx = parseInt(parts[0]) * 100;
+        var gy = parseInt(parts[1]) * 100;
+        floor.fillRect(gx, gy, 100, 100);
+    });
+    
+    // Show monsters on map
+    floor.fillStyle="rgba(255,0,0,0.8)";
+    for(var i in monsters) {
+        var m = monsters[i];
+        floor.fillRect(m.x-10, m.y-10, 20, 20);
+    }
+    
+    // Show loot on map
+    floor.fillStyle="rgba(255,255,0,0.8)";
+    var allLoot = coins.concat(potions);
+    for(var i in allLoot) {
+        var l = allLoot[i];
+        floor.fillRect(l.x-5, l.y-5, 10, 10);
+    }
+    
+    // Show hero
+    floor.fillStyle="rgba(0,0,255,1)";
+    floor.fillRect(hero.x-8, hero.y-8, 16, 16);
     floor.restore();
 }
 
@@ -582,8 +979,13 @@ function DeathMob(mob){
     this.angle=mob.angle;
     this.used=false;
     this.use=function(mob){
-        if(!this.used && Math.random()>0.5) coins.push(new Coin(this.x+50, this.y+50));
-        if(!this.used && Math.random()>0.5) potions.push(new PotionHealth(this.x+50, this.y));
+        if(!this.used && Math.random()>0.5) {
+            coins.push(new Coin(this.x+50, this.y+50));
+            gameStats.coinsCollected++; // Track coin generation
+        }
+        if(!this.used && Math.random()>0.5) {
+            potions.push(new PotionHealth(this.x+50, this.y));
+        }
         this.used=true;
     }
 }
@@ -605,6 +1007,7 @@ function Coin(x,y){
     this.use=function(mob){
         remove(coins,this);
         mob.coins+=this.coins;
+        gameStats.coinsCollected++; // Track coins collected
     }
 }
 
@@ -624,6 +1027,7 @@ function PotionHealth(x,y){
     this.health=1000;
     this.drink=function(mob){
         mob.health=Math.min(mob.origin_health, mob.health+this.health);
+        gameStats.potionsUsed++; // Track potions used
     }
 }
 
@@ -684,8 +1088,11 @@ function Mob(x,y,name){
             this.health=0;
             remove(monsters,this);
             if(this.death) deathmobs.push(new DeathMob(this));
+            gameStats.monstersKilled++; // Track monsters killed
+            gameStats.damageDealt += damage; // Track damage dealt
         }else{
             this.health=health;
+            gameStats.damageDealt += damage; // Track damage dealt
         }
     }
 }
@@ -733,6 +1140,7 @@ function HeroBarbarian(x,y){
     this.health=this.origin_health=1000;
     this.belt={items:[], size:10};
     this.st=16;
+    this.coins=0; // Initialize coin counter
     this.addToBelt=function(potion){
         for(var i=0;i<this.belt.size;i++){
             if(typeof this.belt.items[i] == "undefined"){
@@ -747,77 +1155,162 @@ function HeroBarbarian(x,y){
     this.getDamage=function(){
         return this.currentDamage * ( Math.random() <= this.criticalDamage ? 4 : 1 );
     }
-}
-
-// Auto AI for hero
-setInterval(function() {
-    // Find all monsters in attack range
-    var monstersInRange = [];
-    for(var i in monsters) {
-        var m = monsters[i];
-        var dist = Math.sqrt((m.x - hero.x)*(m.x - hero.x) + (m.y - hero.y)*(m.y - hero.y));
-        if(dist < 150) {
-            monstersInRange.push({monster: m, dist: dist});
+    // Override damage function to track damage taken
+    this.damage=function(damage){
+        var health=this.health - damage * 1000/(1000-this.resistance);
+        gameStats.damageTaken += damage; // Track damage taken
+        if(health<=0){
+            this.health=0;
+            // Game over logic could go here
+        }else{
+            this.health=health;
         }
     }
+}
+
+// Advanced AI System
+var aiSystem = {
+    exploredAreas: new Set(),
+    currentObjective: null,
+    lastPosition: {x: 0, y: 0},
+    stuckCounter: 0,
+    combatStrategy: 'aggressive',
+    lootPriority: ['PotionHealth', 'Coin'],
     
-    if(monstersInRange.length > 0) {
-        // Attack the closest one
-        monstersInRange.sort(function(a,b){return a.dist - b.dist;});
-        hero.doAttack(monstersInRange[0].monster);
-    } else {
-        // Find nearest monster to move towards
-        var nearestMonster = null;
-        var minDist = Infinity;
-        for(var i in monsters) {
-            var m = monsters[i];
-            var dist = Math.sqrt((m.x - hero.x)*(m.x - hero.x) + (m.y - hero.y)*(m.y - hero.y));
-            if(dist < minDist) {
-                minDist = dist;
-                nearestMonster = m;
+    // Get distance between two points
+    getDistance: function(p1, p2) {
+        return Math.sqrt((p1.x - p2.x)*(p1.x - p2.x) + (p1.y - p2.y)*(p1.y - p2.y));
+    },
+    
+    // Mark area as explored
+    markExplored: function(x, y, radius) {
+        var gridSize = 100;
+        var gx = Math.floor(x / gridSize);
+        var gy = Math.floor(y / gridSize);
+        for(var dx = -Math.ceil(radius/gridSize); dx <= Math.ceil(radius/gridSize); dx++) {
+            for(var dy = -Math.ceil(radius/gridSize); dy <= Math.ceil(radius/gridSize); dy++) {
+                this.exploredAreas.add((gx + dx) + ',' + (gy + dy));
+            }
+        }
+    },
+    
+    // Check if area is explored
+    isExplored: function(x, y) {
+        var gridSize = 100;
+        var gx = Math.floor(x / gridSize);
+        var gy = Math.floor(y / gridSize);
+        return this.exploredAreas.has(gx + ',' + gy);
+    },
+    
+    // Find nearest unexplored area
+    findUnexploredArea: function() {
+        var attempts = 0;
+        var maxAttempts = 50;
+        var bestScore = -1;
+        var bestPos = null;
+        
+        while(attempts < maxAttempts) {
+            var angle = Math.random() * Math.PI * 2;
+            var distance = 200 + Math.random() * 600;
+            var x = hero.x + Math.cos(angle) * distance;
+            var y = hero.y + Math.sin(angle) * distance;
+            
+            // Check if position is valid and unexplored
+            if(isWayWall(x, y) && !this.isExplored(x, y)) {
+                var score = distance + (this.isExplored(x, y) ? -500 : 500);
+                if(score > bestScore) {
+                    bestScore = score;
+                    bestPos = {x: x, y: y};
+                }
+            }
+            attempts++;
+        }
+        
+        return bestPos;
+    },
+    
+    // Smart combat positioning
+    getOptimalCombatPosition: function(target) {
+        var angle = Math.atan2(target.y - hero.y, target.x - hero.x);
+        var distance = 120; // optimal attack distance
+        
+        // Try to position for hit-and-run tactics
+        var positions = [];
+        for(var i = 0; i < 8; i++) {
+            var testAngle = angle + (i * Math.PI / 4);
+            var x = target.x + Math.cos(testAngle) * distance;
+            var y = target.y + Math.sin(testAngle) * distance;
+            
+            if(isWayWall(x, y)) {
+                // Score based on safety (distance from other monsters)
+                var safety = 0;
+                for(var j in monsters) {
+                    if(monsters[j] !== target) {
+                        safety += this.getDistance({x: x, y: y}, monsters[j]);
+                    }
+                }
+                positions.push({x: x, y: y, safety: safety});
             }
         }
         
-        if(nearestMonster) {
-            hero.to_x = nearestMonster.x;
-            hero.to_y = nearestMonster.y;
-        } else {
-            // No monsters, look for loot
-            var nearestLoot = null;
-            minDist = Infinity;
-            var allLoot = coins.concat(potions);
-            for(var i in allLoot) {
-                var l = allLoot[i];
-                var dist = Math.sqrt((l.x - hero.x)*(l.x - hero.x) + (l.y - hero.y)*(l.y - hero.y));
-                if(dist < minDist) {
-                    minDist = dist;
-                    nearestLoot = l;
-                }
-            }
-            if(nearestLoot && minDist < 50) { // loot range
-                nearestLoot.use(hero);
-            } else if(nearestLoot) {
-                hero.to_x = nearestLoot.x;
-                hero.to_y = nearestLoot.y;
-            } else {
-                // Explore: move to random valid position
-                var attempts = 0;
-                while(attempts < 10) {
-                    var rx = hero.x + (Math.random() - 0.5) * 800;
-                    var ry = hero.y + (Math.random() - 0.5) * 800;
-                    if(isWayWall(rx, ry)) {
-                        hero.to_x = rx;
-                        hero.to_y = ry;
-                        break;
-                    }
-                    attempts++;
-                }
-            }
+        if(positions.length > 0) {
+            positions.sort(function(a, b) { return b.safety - a.safety; });
+            return positions[0];
         }
+        
+        return {x: target.x, y: target.y};
+    },
+    
+    // Intelligent loot prioritization
+    prioritizeLoot: function(lootArray) {
+        return lootArray.sort(function(a, b) {
+            var aScore = 0, bScore = 0;
+            
+            // Health potions are highest priority when health is low
+            if(a instanceof PotionHealth) {
+                aScore += hero.health < hero.origin_health * 0.7 ? 1000 : 100;
+            }
+            if(b instanceof PotionHealth) {
+                bScore += hero.health < hero.origin_health * 0.7 ? 1000 : 100;
+            }
+            
+            // Coins are medium priority
+            if(a.coins) aScore += 50;
+            if(b.coins) bScore += 50;
+            
+            // Distance factor (closer is better)
+            aScore -= aiSystem.getDistance(hero, a) * 0.1;
+            bScore -= aiSystem.getDistance(hero, b) * 0.1;
+            
+            return bScore - aScore;
+        });
+    }
+};
+
+// Enhanced Auto AI for hero
+setInterval(function() {
+    // Mark current area as explored
+    aiSystem.markExplored(hero.x, hero.y, 150);
+    
+    // Check if hero is stuck
+    if(aiSystem.getDistance(hero, aiSystem.lastPosition) < 10) {
+        aiSystem.stuckCounter++;
+    } else {
+        aiSystem.stuckCounter = 0;
+        aiSystem.lastPosition = {x: hero.x, y: hero.y};
     }
     
-    // Auto heal
-    if(hero.health < hero.origin_health * 0.3) { // heal at 30% health
+    // Emergency unstuck mechanism
+    if(aiSystem.stuckCounter > 10) {
+        var escapeAngle = Math.random() * Math.PI * 2;
+        hero.to_x = hero.x + Math.cos(escapeAngle) * 200;
+        hero.to_y = hero.y + Math.sin(escapeAngle) * 200;
+        aiSystem.stuckCounter = 0;
+        return;
+    }
+    
+    // Priority 1: Emergency healing
+    if(hero.health < hero.origin_health * 0.2) {
         for(var i in hero.belt.items) {
             var p = hero.belt.items[i];
             if(p instanceof PotionHealth) {
@@ -827,6 +1320,108 @@ setInterval(function() {
             }
         }
     }
-}, 300); // faster response
+    
+    // Priority 2: Combat with smart positioning
+    var monstersInRange = [];
+    var nearbyMonsters = [];
+    
+    for(var i in monsters) {
+        var m = monsters[i];
+        var dist = aiSystem.getDistance(hero, m);
+        if(dist < 150) {
+            monstersInRange.push({monster: m, dist: dist});
+        }
+        if(dist < 400) {
+            nearbyMonsters.push({monster: m, dist: dist});
+        }
+    }
+    
+    if(monstersInRange.length > 0) {
+        // Smart combat: attack weakest or closest based on health
+        monstersInRange.sort(function(a, b) {
+            if(hero.health < hero.origin_health * 0.5) {
+                // When low health, prioritize by distance
+                return a.dist - b.dist;
+            } else {
+                // When healthy, prioritize weaker enemies
+                return a.monster.health - b.monster.health;
+            }
+        });
+        
+        var target = monstersInRange[0].monster;
+        
+        // Use hit-and-run if outnumbered or low health
+        if(monstersInRange.length > 2 || hero.health < hero.origin_health * 0.4) {
+            var optimalPos = aiSystem.getOptimalCombatPosition(target);
+            var distToOptimal = aiSystem.getDistance(hero, optimalPos);
+            
+            if(distToOptimal > 50) {
+                hero.to_x = optimalPos.x;
+                hero.to_y = optimalPos.y;
+            } else {
+                hero.doAttack(target);
+            }
+        } else {
+            hero.doAttack(target);
+        }
+    } else if(nearbyMonsters.length > 0) {
+        // Move towards nearest monster with caution
+        nearbyMonsters.sort(function(a, b) { return a.dist - b.dist; });
+        var target = nearbyMonsters[0].monster;
+        hero.to_x = target.x;
+        hero.to_y = target.y;
+    } else {
+        // Priority 3: Loot collection
+        var allLoot = coins.concat(potions);
+        var nearbyLoot = [];
+        
+        for(var i in allLoot) {
+            var l = allLoot[i];
+            var dist = aiSystem.getDistance(hero, l);
+            if(dist < 300) {
+                nearbyLoot.push(l);
+            }
+        }
+        
+        if(nearbyLoot.length > 0) {
+            var prioritizedLoot = aiSystem.prioritizeLoot(nearbyLoot);
+            var targetLoot = prioritizedLoot[0];
+            var distToLoot = aiSystem.getDistance(hero, targetLoot);
+            
+            if(distToLoot < 50) {
+                targetLoot.use(hero);
+            } else {
+                hero.to_x = targetLoot.x;
+                hero.to_y = targetLoot.y;
+            }
+        } else {
+            // Priority 4: Intelligent exploration
+            var unexploredArea = aiSystem.findUnexploredArea();
+            if(unexploredArea) {
+                hero.to_x = unexploredArea.x;
+                hero.to_y = unexploredArea.y;
+                aiSystem.currentObjective = 'exploring';
+            } else {
+                // Fallback: patrol the map
+                var patrolDistance = 300;
+                var patrolAngle = (Date.now() / 5000) % (Math.PI * 2);
+                hero.to_x = hero.x + Math.cos(patrolAngle) * patrolDistance;
+                hero.to_y = hero.y + Math.sin(patrolAngle) * patrolDistance;
+            }
+        }
+    }
+    
+    // Preventive healing
+    if(hero.health < hero.origin_health * 0.6 && monstersInRange.length === 0) {
+        for(var i in hero.belt.items) {
+            var p = hero.belt.items[i];
+            if(p instanceof PotionHealth) {
+                p.drink(hero);
+                remove(hero.belt.items, p);
+                break;
+            }
+        }
+    }
+}, 200); // Faster response for better AI
 
 })();

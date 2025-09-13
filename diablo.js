@@ -184,9 +184,18 @@ for(var l in level){
     for(i in level[l].header) if(!level[l].tiles[i]) level[l].tiles[i]=loadImage(level[l].prefix+i+".png");
 } 
 
-var floor=document.getElementById("floor").getContext("2d");
-floor.w=floor.canvas.width;
-floor.h=floor.canvas.height;
+// Set canvas to fullscreen
+var canvas = document.getElementById("floor");
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+var floor=canvas.getContext("2d");
+floor.w=canvas.width;
+floor.h=canvas.height;
 var tw=160, th=tw/2, s=tw*0.705, a=Math.PI/4, visible=7, asin=acos=Math.sin(a);
 
 var barrelSprite=loadImage("sprite/barrel64.png");
@@ -739,5 +748,85 @@ function HeroBarbarian(x,y){
         return this.currentDamage * ( Math.random() <= this.criticalDamage ? 4 : 1 );
     }
 }
+
+// Auto AI for hero
+setInterval(function() {
+    // Find all monsters in attack range
+    var monstersInRange = [];
+    for(var i in monsters) {
+        var m = monsters[i];
+        var dist = Math.sqrt((m.x - hero.x)*(m.x - hero.x) + (m.y - hero.y)*(m.y - hero.y));
+        if(dist < 150) {
+            monstersInRange.push({monster: m, dist: dist});
+        }
+    }
+    
+    if(monstersInRange.length > 0) {
+        // Attack the closest one
+        monstersInRange.sort(function(a,b){return a.dist - b.dist;});
+        hero.doAttack(monstersInRange[0].monster);
+    } else {
+        // Find nearest monster to move towards
+        var nearestMonster = null;
+        var minDist = Infinity;
+        for(var i in monsters) {
+            var m = monsters[i];
+            var dist = Math.sqrt((m.x - hero.x)*(m.x - hero.x) + (m.y - hero.y)*(m.y - hero.y));
+            if(dist < minDist) {
+                minDist = dist;
+                nearestMonster = m;
+            }
+        }
+        
+        if(nearestMonster) {
+            hero.to_x = nearestMonster.x;
+            hero.to_y = nearestMonster.y;
+        } else {
+            // No monsters, look for loot
+            var nearestLoot = null;
+            minDist = Infinity;
+            var allLoot = coins.concat(potions);
+            for(var i in allLoot) {
+                var l = allLoot[i];
+                var dist = Math.sqrt((l.x - hero.x)*(l.x - hero.x) + (l.y - hero.y)*(l.y - hero.y));
+                if(dist < minDist) {
+                    minDist = dist;
+                    nearestLoot = l;
+                }
+            }
+            if(nearestLoot && minDist < 50) { // loot range
+                nearestLoot.use(hero);
+            } else if(nearestLoot) {
+                hero.to_x = nearestLoot.x;
+                hero.to_y = nearestLoot.y;
+            } else {
+                // Explore: move to random valid position
+                var attempts = 0;
+                while(attempts < 10) {
+                    var rx = hero.x + (Math.random() - 0.5) * 800;
+                    var ry = hero.y + (Math.random() - 0.5) * 800;
+                    if(isWayWall(rx, ry)) {
+                        hero.to_x = rx;
+                        hero.to_y = ry;
+                        break;
+                    }
+                    attempts++;
+                }
+            }
+        }
+    }
+    
+    // Auto heal
+    if(hero.health < hero.origin_health * 0.3) { // heal at 30% health
+        for(var i in hero.belt.items) {
+            var p = hero.belt.items[i];
+            if(p instanceof PotionHealth) {
+                p.drink(hero);
+                remove(hero.belt.items, p);
+                break;
+            }
+        }
+    }
+}, 300); // faster response
 
 })();

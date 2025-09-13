@@ -259,6 +259,15 @@ var monsterMap={
 };
 
 var hero=new HeroBarbarian(s*3,s*3);
+
+// Load saved game data
+loadGame();
+
+// Auto-save every 30 seconds
+setInterval(function(){
+    saveGame();
+}, 30000);
+
 setInterval(function(){
     hero.health=Math.min(hero.health+10, hero.origin_health);
 },2000);
@@ -311,6 +320,17 @@ setInterval(function() { // random step for mobs, attack hero
     }
 }, 200);
 
+// Monster respawning for continuous idle gameplay
+setInterval(function() {
+    var maxMonsters = 6 + Math.floor(hero.level / 5); // More monsters as player levels up
+    var monsterTypes = ['SK', 'FS', 'SI'];
+    
+    while(monsters.length < maxMonsters) {
+        var type = monsterTypes[Math.floor(Math.random() * monsterTypes.length)];
+        monsters.push(new AgressiveMob(randomx(), randomy(), type));
+    }
+}, 5000); // Respawn every 5 seconds
+
 floor.canvas.onclick=function(e) { 
     var mx=(e.offsetX==undefined?e.layerX:e.offsetX) - floor.w/2;
     var my=(e.offsetY==undefined?e.layerY:e.offsetY) - floor.h/2;
@@ -337,6 +357,19 @@ window.onkeydown=function(e){
         showMap=!showMap;
         return false;
     }
+    if(e.keyCode==80){ // P key for prestige
+        if(hero.canPrestige()){
+            hero.prestige();
+        } else {
+            console.log("Need level 50+ to prestige!");
+        }
+        return false;
+    }
+    if(e.keyCode==83){ // S key for manual save
+        saveGame();
+        console.log("Game saved!");
+        return false;
+    }
 }
 
 var showMap=false;
@@ -348,6 +381,7 @@ setInterval(function() {
     renderFloor();
     renderHeroHealth()
     renderHeroBelt();
+    renderIdleStats();
     if(showMap) renderMap();
 }, 66);
 
@@ -389,6 +423,65 @@ function renderHeroBelt(){
                 200+tw*i, 600, tw, th);
         }
     }
+    floor.restore();
+}
+
+function renderIdleStats(){
+    floor.save();
+    floor.fillStyle = "rgba(0, 0, 0, 0.7)";
+    floor.fillRect(floor.w - 250, 10, 240, 180);
+    
+    floor.fillStyle = "rgb(255, 215, 0)"; // Gold color
+    floor.font = "14px Verdana";
+    
+    var y = 30;
+    var lineHeight = 18;
+    
+    // Level and Experience
+    floor.fillText("Level: " + hero.level, floor.w - 240, y);
+    y += lineHeight;
+    floor.fillText("XP: " + hero.experience + "/" + hero.experienceToNext, floor.w - 240, y);
+    y += lineHeight;
+    
+    // Experience bar
+    var barWidth = 200;
+    var barHeight = 8;
+    floor.fillStyle = "rgb(100, 100, 100)";
+    floor.fillRect(floor.w - 240, y, barWidth, barHeight);
+    floor.fillStyle = "rgb(0, 255, 0)"; // Green for XP
+    var xpPercent = hero.experience / hero.experienceToNext;
+    floor.fillRect(floor.w - 240, y, barWidth * xpPercent, barHeight);
+    
+    y += lineHeight + 5;
+    floor.fillStyle = "rgb(255, 215, 0)";
+    
+    // Stats
+    floor.fillText("Kills: " + hero.totalKills, floor.w - 240, y);
+    y += lineHeight;
+    floor.fillText("Prestige: " + hero.prestigeLevel, floor.w - 240, y);
+    y += lineHeight;
+    floor.fillText("Skill Points: " + hero.skillPoints, floor.w - 240, y);
+    y += lineHeight;
+    floor.fillText("Damage: " + Math.round(hero.currentDamage + (hero.level * 10) + (hero.prestigeLevel * 50)), floor.w - 240, y);
+    y += lineHeight;
+    floor.fillText("Crit Chance: " + Math.round(hero.criticalDamage * 100) + "%", floor.w - 240, y);
+    y += lineHeight;
+    
+    // Prestige availability
+    if(hero.canPrestige()) {
+        floor.fillStyle = "rgb(255, 255, 0)"; // Yellow for available prestige
+        floor.fillText("PRESTIGE AVAILABLE! (P)", floor.w - 240, y);
+    } else {
+        floor.fillStyle = "rgb(150, 150, 150)"; // Gray
+        floor.fillText("Prestige at level 50", floor.w - 240, y);
+    }
+    y += lineHeight;
+    
+    // Controls help
+    floor.fillStyle = "rgb(180, 180, 180)";
+    floor.font = "11px Verdana";
+    floor.fillText("Tab: Map, P: Prestige, S: Save", floor.w - 240, y);
+    
     floor.restore();
 }
 
@@ -684,6 +777,21 @@ function Mob(x,y,name){
             this.health=0;
             remove(monsters,this);
             if(this.death) deathmobs.push(new DeathMob(this));
+            
+            // Award experience and increment kill count
+            hero.totalKills++;
+            var baseExp = 25 + (hero.level * 2); // Experience scales with hero level
+            hero.gainExperience(baseExp);
+            
+            // Chance to drop coins/potions on death
+            if(Math.random() < 0.3) { // 30% chance for coin
+                coins.push(new Coin(this.x + (Math.random() - 0.5) * 50, 
+                                  this.y + (Math.random() - 0.5) * 50));
+            }
+            if(Math.random() < 0.1) { // 10% chance for potion
+                potions.push(new PotionHealth(this.x + (Math.random() - 0.5) * 50, 
+                                            this.y + (Math.random() - 0.5) * 50));
+            }
         }else{
             this.health=health;
         }
@@ -733,6 +841,16 @@ function HeroBarbarian(x,y){
     this.health=this.origin_health=1000;
     this.belt={items:[], size:10};
     this.st=16;
+    
+    // Idle game progression stats
+    this.level = 1;
+    this.experience = 0;
+    this.experienceToNext = 100;
+    this.totalKills = 0;
+    this.prestigeLevel = 0;
+    this.skillPoints = 0;
+    this.lastPlayTime = Date.now();
+    
     this.addToBelt=function(potion){
         for(var i=0;i<this.belt.size;i++){
             if(typeof this.belt.items[i] == "undefined"){
@@ -745,7 +863,180 @@ function HeroBarbarian(x,y){
     this.criticalDamage=0.4;
     this.currentDamage=120;
     this.getDamage=function(){
-        return this.currentDamage * ( Math.random() <= this.criticalDamage ? 4 : 1 );
+        var baseDamage = this.currentDamage + (this.level * 10) + (this.prestigeLevel * 50);
+        return baseDamage * ( Math.random() <= this.criticalDamage ? 4 : 1 );
+    }
+    
+    // Experience and leveling functions
+    this.gainExperience = function(amount) {
+        this.experience += amount * (1 + this.prestigeLevel * 0.1); // Prestige bonus
+        while(this.experience >= this.experienceToNext) {
+            this.levelUp();
+        }
+    }
+    
+    this.levelUp = function() {
+        this.experience -= this.experienceToNext;
+        this.level++;
+        this.skillPoints++;
+        this.experienceToNext = Math.floor(this.experienceToNext * 1.15); // 15% increase per level
+        
+        // Stat increases on level up
+        this.origin_health += 50;
+        this.health = this.origin_health; // Full heal on level up
+        this.currentDamage += 5;
+        
+        // Auto-upgrade system - automatically allocate skill points
+        this.autoUpgrade();
+        
+        // Show level up notification
+        console.log("Level up! Now level " + this.level);
+    }
+    
+    // Auto-upgrade system
+    this.autoUpgrade = function() {
+        while(this.skillPoints > 0) {
+            // Randomly choose what to upgrade (weighted towards damage and health)
+            var upgradeChoice = Math.random();
+            
+            if(upgradeChoice < 0.4) {
+                // 40% chance - Upgrade damage
+                this.currentDamage += 10;
+                this.skillPoints--;
+                console.log("Auto-upgraded damage!");
+            } else if(upgradeChoice < 0.8) {
+                // 40% chance - Upgrade health
+                this.origin_health += 100;
+                this.health = this.origin_health;
+                this.skillPoints--;
+                console.log("Auto-upgraded health!");
+            } else {
+                // 20% chance - Upgrade critical damage
+                this.criticalDamage = Math.min(this.criticalDamage + 0.02, 0.9); // Cap at 90%
+                this.skillPoints--;
+                console.log("Auto-upgraded critical chance!");
+            }
+        }
+    }
+    
+    this.getLevel = function() {
+        return this.level;
+    }
+    
+    this.getExperiencePercent = function() {
+        return (this.experience / this.experienceToNext) * 100;
+    }
+    
+    // Prestige system - resets progress for permanent bonuses
+    this.canPrestige = function() {
+        return this.level >= 50; // Can prestige at level 50+
+    }
+    
+    this.prestige = function() {
+        if(!this.canPrestige()) return false;
+        
+        this.prestigeLevel++;
+        this.level = 1;
+        this.experience = 0;
+        this.experienceToNext = 100;
+        this.skillPoints = 0;
+        
+        // Reset health and damage to base values (but keep prestige bonuses)
+        this.origin_health = 1000 + (this.prestigeLevel * 500); // Prestige health bonus
+        this.health = this.origin_health;
+        this.currentDamage = 120 + (this.prestigeLevel * 30); // Prestige damage bonus
+        
+        // Clear monsters to restart fresh
+        monsters = [];
+        
+        console.log("Prestiged! Now prestige level " + this.prestigeLevel);
+        return true;
+    }
+}
+
+// Calculate offline progress when player returns
+function calculateOfflineProgress() {
+    var currentTime = Date.now();
+    var offlineTime = currentTime - hero.lastPlayTime;
+    
+    if(offlineTime > 60000) { // Only if offline for more than 1 minute
+        var offlineHours = offlineTime / (1000 * 60 * 60);
+        var maxOfflineHours = 8; // Cap at 8 hours
+        offlineHours = Math.min(offlineHours, maxOfflineHours);
+        
+        // Calculate kills per hour based on current stats
+        var killsPerHour = 60 + (hero.level * 5) + (hero.prestigeLevel * 20);
+        var offlineKills = Math.floor(killsPerHour * offlineHours);
+        
+        // Award experience for offline kills
+        var expPerKill = 25 + (hero.level * 2);
+        var totalOfflineExp = offlineKills * expPerKill;
+        
+        hero.totalKills += offlineKills;
+        hero.gainExperience(totalOfflineExp);
+        
+        // Show offline progress message
+        var message = "Welcome back! You were offline for " + 
+                     Math.floor(offlineHours * 100) / 100 + " hours.\n" +
+                     "You gained " + offlineKills + " kills and " + 
+                     totalOfflineExp + " experience!";
+        
+        if(typeof alert !== 'undefined') {
+            setTimeout(function() { alert(message); }, 1000);
+        } else {
+            console.log(message);
+        }
+    }
+    
+    hero.lastPlayTime = currentTime;
+}
+
+// Save game data to localStorage
+function saveGame() {
+    var saveData = {
+        level: hero.level,
+        experience: hero.experience,
+        experienceToNext: hero.experienceToNext,
+        totalKills: hero.totalKills,
+        prestigeLevel: hero.prestigeLevel,
+        skillPoints: hero.skillPoints,
+        lastPlayTime: hero.lastPlayTime,
+        health: hero.health,
+        origin_health: hero.origin_health,
+        currentDamage: hero.currentDamage,
+        criticalDamage: hero.criticalDamage
+    };
+    
+    try {
+        localStorage.setItem('diablojs_save', JSON.stringify(saveData));
+    } catch(e) {
+        console.log("Could not save game data");
+    }
+}
+
+// Load game data from localStorage
+function loadGame() {
+    try {
+        var saveData = localStorage.getItem('diablojs_save');
+        if(saveData) {
+            saveData = JSON.parse(saveData);
+            
+            hero.level = saveData.level || 1;
+            hero.experience = saveData.experience || 0;
+            hero.experienceToNext = saveData.experienceToNext || 100;
+            hero.totalKills = saveData.totalKills || 0;
+            hero.prestigeLevel = saveData.prestigeLevel || 0;
+            hero.skillPoints = saveData.skillPoints || 0;
+            hero.lastPlayTime = saveData.lastPlayTime || Date.now();
+            hero.health = saveData.health || hero.origin_health;
+            hero.origin_health = saveData.origin_health || 1000;
+            hero.currentDamage = saveData.currentDamage || 120;
+            hero.criticalDamage = saveData.criticalDamage || 0.4;
+            
+            calculateOfflineProgress();
+        }
+    } catch(e) {
+        console.log("Could not load game data");
     }
 }
 
@@ -828,5 +1119,10 @@ setInterval(function() {
         }
     }
 }, 300); // faster response
+
+// Save game when page is closed or refreshed
+window.addEventListener('beforeunload', function() {
+    saveGame();
+});
 
 })();
